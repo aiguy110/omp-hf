@@ -1,0 +1,33 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 5d4965e..e7fe758 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -16370,10 +16370,28 @@ static void ggml_backend_vk_host_buffer_free_buffer(ggml_backend_buffer_t buffer
+     ggml_vk_host_free(vk_instance.devices[0], buffer->context);
+ }
+ 
++// Pinned host buffers are read back by the CPU (logits, embeddings). Without a host-visible type that is
++// both coherent and cached, the pinned fallback is write-combined memory, where every CPU read is an uncached
++// access (~80 ms per token to sample a 248K vocab on Intel Meteor Lake / Mesa ANV). Regular memory is faster there.
++static bool ggml_vk_has_cached_coherent_host_memory(const vk_device & device) {
++    const vk::MemoryPropertyFlags wanted = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostCached;
++    const vk::PhysicalDeviceMemoryProperties mem_props = device->physical_device.getMemoryProperties();
++    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
++        if ((mem_props.memoryTypes[i].propertyFlags & wanted) == wanted) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ static ggml_backend_buffer_t ggml_backend_vk_host_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+     VK_LOG_MEMORY("ggml_backend_vk_host_buffer_type_alloc_buffer(" << size << ")");
+ 
+     size += 32;  // Behave like the CPU buffer type
++    static const bool use_pinned = ggml_vk_has_cached_coherent_host_memory(vk_instance.devices[0]);
++    if (!use_pinned) {
++        return ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
++    }
+     void * ptr = nullptr;
+     try {
+         ptr = ggml_vk_host_malloc(vk_instance.devices[0], size);

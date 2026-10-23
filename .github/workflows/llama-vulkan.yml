@@ -1,0 +1,75 @@
+# Builds PrismML's llama.cpp with patches/ggml-vulkan-host-cached.patch for Linux x64 Vulkan and publishes it
+# as release `vulkan-hostfix-<tag>`, which omp-hf downloads for OMP_HF_BACKEND=vulkan.
+# Mirrors the ubuntu-vulkan job in PrismML-Eng/llama.cpp .github/workflows/release-prism.yml.
+name: Build patched llama.cpp (Vulkan)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prism_tag:
+        description: PrismML-Eng/llama.cpp release tag
+        default: prism-b10787-73bfe6c
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  ubuntu-vulkan-x64:
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ inputs.prism_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch PrismML source and apply patch
+        run: |
+          git clone --depth 1 --branch "$TAG" https://github.com/PrismML-Eng/llama.cpp src
+          git -C src apply "$GITHUB_WORKSPACE/patches/ggml-vulkan-host-cached.patch"
+          git -C src diff --stat
+
+      - name: Dependencies
+        run: |
+          wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential mesa-vulkan-drivers vulkan-sdk libssl-dev ninja-build
+
+      - name: Build
+        working-directory: src
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_RPATH='$ORIGIN' \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_NATIVE=OFF \
+            -DGGML_CPU_ALL_VARIANTS=ON \
+            -DGGML_VULKAN=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=ON \
+            -DLLAMA_BUILD_SERVER=ON
+          cmake --build build --config Release -j "$(nproc)"
+
+      - name: Smoke test
+        working-directory: src/build/bin
+        run: ./llama-server --version
+
+      - name: Pack
+        run: |
+          name="llama-$TAG-hostfix"
+          tar -czf "$name-bin-ubuntu-vulkan-x64.tar.gz" --transform "s,^\.,$name," -C src/build/bin .
+          sha256sum "$name-bin-ubuntu-vulkan-x64.tar.gz" > "$name-bin-ubuntu-vulkan-x64.tar.gz.sha256"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release="vulkan-hostfix-$TAG"
+          gh release delete "$release" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$release" llama-*.tar.gz llama-*.sha256 \
+            --title "llama.cpp $TAG + Vulkan host-buffer fix (Linux x64)" \
+            --notes "PrismML-Eng/llama.cpp \`$TAG\` built with [patches/ggml-vulkan-host-cached.patch](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/patches/ggml-vulkan-host-cached.patch) by [this workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          The patch stops ggml-vulkan from putting pinned host buffers (including the logits output) in write-combined memory when the device has no cached+coherent host-visible memory type, as on Intel Meteor Lake with Mesa ANV. On that hardware it raises Bonsai 2 2B decode in llama-server from ~8.6 to ~25 tok/s."
