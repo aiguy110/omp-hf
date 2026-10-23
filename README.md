@@ -32,11 +32,12 @@ Progress appears in omp's status line. Interrupted downloads pick up where they 
 | `hf/bonsai-2-4b` | Ternary Bonsai 2 4B (PQ2_0 + vision) | 1.5 GB |
 | `hf/bonsai-2-9b` | Ternary Bonsai 2 9B (PQ2_0 + vision) | 3.0 GB |
 | `hf/bonsai-2-27b` | Ternary Bonsai 2 27B (PQ2_0 + vision) | 7.8 GB |
-| `hf/qwen3-1.7b` | Qwen3 1.7B Q4_K_M | 1.1 GB |
-| `hf/qwen3-4b-instruct-2507` | Qwen3 4B Instruct 2507 Q4_K_M | 2.5 GB |
-| `hf/gemma-3-4b-it` | Gemma 3 4B IT Q4_K_M | 2.5 GB |
+| `hf/qwen3.5-2b` | Qwen3.5 2B Q4_K_M (+ vision) | 1.9 GB |
+| `hf/qwen3.5-4b` | Qwen3.5 4B Q4_K_M (+ vision) | 3.4 GB |
+| `hf/gemma-4-e2b-it` | Gemma 4 E2B IT Q4_0 (+ vision) | 3.4 GB |
+| `hf/gemma-4-e4b-it` | Gemma 4 E4B IT Q4_0 (+ vision) | 5.2 GB |
 
-Bonsai models run with PrismML's recommended thinking-mode sampling.
+Bonsai and Qwen3.5 models run in thinking mode with their vendors' recommended sampling. Gemma 4 runs without thinking: its thinking switch is a system-prompt token omp does not send. Gemma 4's E2B/E4B files are larger than their names suggest because of per-layer embedding tables.
 
 To use any other single-file GGUF repo, run `/hf user/repo` or `/hf user/repo:Q4_K_M`, or choose "Custom Hugging Face repo…" in the picker. Without a quant, `Q4_K_M` is preferred. Custom models are saved to `~/.omp/hf/custom.json`.
 
@@ -75,9 +76,10 @@ Files live in `~/.omp/hf/`: `llama/` (runtime), `models/<repo>/` (weights), `lla
   | Backend | Prompt tok/s | Generation tok/s |
   |---|---:|---:|
   | CPU | 87 | 11.6 |
-  | Vulkan (Arc iGPU) | 117–152 | 7.4–8.7 |
+  | Vulkan (Arc iGPU), PrismML build | 117–152 | 7.4–8.7 |
+  | Vulkan (Arc iGPU), with host-buffer fix | 162 | 19.5 |
 
-  Vulkan prefills faster but generates slower, and thinking models spend most of a turn generating. `llama-bench` reports Vulkan faster at both (193/29 vs 93/19 tok/s at 2k; 20 vs 12 tok/s generating at 8k depth), but that did not carry over to `llama-server` with any of the flash-attention, context-size, projector, slot-count, or sampler settings tried.
+  The stock Vulkan build is slow at generation because of how ggml-vulkan allocates pinned host memory, not because of the GPU kernels. It wants host memory that is cached and coherent. Mesa's Intel driver on Meteor Lake offers none (its cached types are non-coherent), so ggml falls back to write-combined memory. The logits output buffer lands there, and sampling reads all ~248K logits from uncached memory every token: about 78 ms per token. `llama-bench` and `llama-completion` hide this because their speed figures leave out sampling time. Falling back to ordinary RAM when no cached and coherent type exists fixes it (a ~15-line change to `ggml-vulkan.cpp`). Upstream llama.cpp has the same code, and large-vocabulary models (Qwen3.5, Bonsai 2, Gemma 4) suffer most.
 - Linux and macOS only.
 
 ## License

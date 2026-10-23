@@ -43,50 +43,51 @@ function bonsai2(size: "2B" | "4B" | "9B" | "27B", bytes: number, contextWindow:
 	};
 }
 
+// Qwen3.5 thinking-mode sampling for general tasks (Qwen/Qwen3.5-*/README.md, "Best Practices").
+function qwen35(size: "2B" | "4B", file: string, bytes: number): CatalogEntry {
+	return {
+		id: `qwen3.5-${size.toLowerCase()}`,
+		name: `Qwen3.5 ${size}`,
+		repo: `unsloth/Qwen3.5-${size}-GGUF`,
+		file,
+		mmproj: "mmproj-F16.gguf",
+		bytes,
+		contextWindow: 65536,
+		maxTokens: 16384,
+		reasoning: true,
+		family: "qwen",
+		serverArgs: ["--temp", "1.0", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "1.5"],
+		note: "Q4_K_M",
+	};
+}
+
+// Gemma 4 thinking is toggled by a system-prompt token omp does not send, so these run non-thinking.
+function gemma4(size: "E2B" | "E4B", bytes: number): CatalogEntry {
+	return {
+		id: `gemma-4-${size.toLowerCase()}-it`,
+		name: `Gemma 4 ${size} IT`,
+		repo: `ggml-org/gemma-4-${size}-it-GGUF`,
+		file: `gemma-4-${size}-it-Q4_0.gguf`,
+		mmproj: `mmproj-gemma-4-${size}-it-Q8_0.gguf`,
+		bytes,
+		contextWindow: 32768,
+		maxTokens: 8192,
+		reasoning: false,
+		family: "generic",
+		serverArgs: ["--temp", "1.0", "--top-p", "0.95", "--top-k", "64"],
+		note: "Q4_0",
+	};
+}
+
 export const CATALOG: readonly CatalogEntry[] = [
 	bonsai2("2B", 517_312_992 + 364_664_352, 65536),
 	bonsai2("4B", 1_146_465_120 + 366_894_624, 65536),
 	bonsai2("9B", 2_416_851_840 + 624_229_664, 65536),
 	bonsai2("27B", 7_206_168_928 + 629_246_976, 32768),
-	{
-		id: "qwen3-1.7b",
-		name: "Qwen3 1.7B",
-		repo: "unsloth/Qwen3-1.7B-GGUF",
-		file: "Qwen3-1.7B-Q4_K_M.gguf",
-		bytes: 1_107_409_472,
-		contextWindow: 32768,
-		maxTokens: 8192,
-		reasoning: true,
-		family: "qwen",
-		serverArgs: ["--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0"],
-		note: "Q4_K_M",
-	},
-	{
-		id: "qwen3-4b-instruct-2507",
-		name: "Qwen3 4B Instruct 2507",
-		repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-		file: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-		bytes: 2_497_281_120,
-		contextWindow: 65536,
-		maxTokens: 16384,
-		reasoning: false,
-		family: "qwen",
-		serverArgs: ["--temp", "0.7", "--top-p", "0.8", "--top-k", "20", "--min-p", "0"],
-		note: "Q4_K_M, non-thinking",
-	},
-	{
-		id: "gemma-3-4b-it",
-		name: "Gemma 3 4B IT",
-		repo: "ggml-org/gemma-3-4b-it-GGUF",
-		file: "gemma-3-4b-it-Q4_K_M.gguf",
-		bytes: 2_489_757_856,
-		contextWindow: 32768,
-		maxTokens: 8192,
-		reasoning: false,
-		family: "generic",
-		serverArgs: [],
-		note: "Q4_K_M",
-	},
+	qwen35("2B", "Qwen3.5-2B-Q4_K_M.gguf", 1_280_835_840 + 668_227_264),
+	qwen35("4B", "Qwen3.5-4B-Q4_K_M.gguf", 2_740_937_888 + 672_423_616),
+	gemma4("E2B", 2_841_481_184 + 557_368_064),
+	gemma4("E4B", 4_590_807_392 + 559_874_816),
 ];
 
 const QUANT_PREFERENCE = ["Q4_K_M", "Q4_K_S", "Q4_0", "Q5_K_M", "Q8_0"];
