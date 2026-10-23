@@ -1,0 +1,14 @@
+{
+	"name": "omp-hf",
+	"version": "0.1.0",
+	"description": "omp extension: pick a small Hugging Face GGUF model and have omp download and serve it with llama.cpp",
+	"type": "module",
+	"license": "MIT",
+	"omp": {
+		"extensions": ["./index.ts"]
+	},
+	"peerDependencies": {
+		"@oh-my-pi/pi-ai": "*",
+		"@oh-my-pi/pi-coding-agent": "*"
+	}
+}
