@@ -19,7 +19,7 @@ omp --model hf/bonsai-2-4b       # or start on one directly
 
 Nothing is downloaded until a model is first used. The first request then fetches:
 
-1. The pinned [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp/releases) build for your platform. This is upstream llama.cpp plus the `PQ2_0`/`PTQ1_0` kernels that Bonsai 2 needs. CUDA is used when `nvidia-smi` is present, ROCm when `rocminfo` is present, Metal on Apple Silicon, and CPU otherwise.
+1. The pinned [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp/releases) build for your platform. This is upstream llama.cpp plus the `PQ2_0`/`PTQ1_0` kernels that Bonsai 2 needs. CUDA is used when `nvidia-smi` is present, ROCm when `rocminfo` is present, Metal on Apple Silicon, and CPU otherwise. Intel and AMD integrated graphics can use the Vulkan build with `OMP_HF_BACKEND=vulkan`; it is not the default because it decoded slower than CPU in testing (see Notes).
 2. The model's GGUF weights, plus its vision projector if it has one, from Hugging Face.
 
 Progress appears in omp's status line. Interrupted downloads pick up where they left off.
@@ -70,7 +70,14 @@ Files live in `~/.omp/hf/`: `llama/` (runtime), `models/<repo>/` (weights), `lla
 
 ## Notes
 
-- On CPU, the first turn is slow because omp's system prompt is several thousand tokens. Measured on a 22-core laptop CPU with Bonsai 2 2B: about 90 prompt tokens/s and 12 generated tokens/s. Later turns reuse the server's prompt cache.
+- The first turn is slow without a discrete GPU because omp's system prompt is about 8k tokens. Later turns reuse the server's prompt cache. Bonsai 2 2B on an Intel Core Ultra 7 165H, measured through `llama-server` with an ~8.3k-token prompt:
+
+  | Backend | Prompt tok/s | Generation tok/s |
+  |---|---:|---:|
+  | CPU | 87 | 11.6 |
+  | Vulkan (Arc iGPU) | 117–152 | 7.4–8.7 |
+
+  Vulkan prefills faster but generates slower, and thinking models spend most of a turn generating. `llama-bench` reports Vulkan faster at both (193/29 vs 93/19 tok/s at 2k; 20 vs 12 tok/s generating at 8k depth), but that did not carry over to `llama-server` with any of the flash-attention, context-size, projector, slot-count, or sampler settings tried.
 - Linux and macOS only.
 
 ## License

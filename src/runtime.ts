@@ -37,6 +37,8 @@ function pickVariant(): Variant {
 	if (arch === "arm64") {
 		return forced === "vulkan" ? { asset: asset("ubuntu-vulkan-arm64"), gpu: true } : { asset: asset("ubuntu-arm64"), gpu: false };
 	}
+	// Integrated GPUs stay on CPU unless asked: on an Arc iGPU, Vulkan prefilled ~1.5x faster but
+	// decoded ~0.7x as fast as CPU in llama-server, and thinking models are decode-bound.
 	const backend = forced || (Bun.which("nvidia-smi") ? "cuda" : Bun.which("rocminfo") ? "rocm" : "cpu");
 	switch (backend) {
 		case "cuda":
