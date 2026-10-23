@@ -24,9 +24,9 @@ jobs:
 
       - name: Fetch PrismML source and apply patch
         run: |
-          git clone --depth 1 --branch "$TAG" https://github.com/PrismML-Eng/llama.cpp src
-          git -C src apply "$GITHUB_WORKSPACE/patches/ggml-vulkan-host-cached.patch"
-          git -C src diff --stat
+          git clone --depth 1 --branch "$TAG" https://github.com/PrismML-Eng/llama.cpp llama.cpp
+          git -C llama.cpp apply "$GITHUB_WORKSPACE/patches/ggml-vulkan-host-cached.patch"
+          git -C llama.cpp diff --stat
 
       - name: Dependencies
         run: |
@@ -36,7 +36,7 @@ jobs:
           sudo apt-get install -y build-essential mesa-vulkan-drivers vulkan-sdk libssl-dev ninja-build
 
       - name: Build
-        working-directory: src
+        working-directory: llama.cpp
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -53,13 +53,13 @@ jobs:
           cmake --build build --config Release -j "$(nproc)"
 
       - name: Smoke test
-        working-directory: src/build/bin
+        working-directory: llama.cpp/build/bin
         run: ./llama-server --version
 
       - name: Pack
         run: |
           name="llama-$TAG-hostfix"
-          tar -czf "$name-bin-ubuntu-vulkan-x64.tar.gz" --transform "s,^\.,$name," -C src/build/bin .
+          tar -czf "$name-bin-ubuntu-vulkan-x64.tar.gz" --transform "s,^\.,$name," -C llama.cpp/build/bin .
           sha256sum "$name-bin-ubuntu-vulkan-x64.tar.gz" > "$name-bin-ubuntu-vulkan-x64.tar.gz.sha256"
 
       - name: Publish release
