@@ -19,7 +19,7 @@ omp --model hf/bonsai-2-4b       # or start on one directly
 
 Nothing is downloaded until a model is first used. The first request then fetches:
 
-1. The pinned [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp/releases) build for your platform. This is upstream llama.cpp plus the `PQ2_0`/`PTQ1_0` kernels that Bonsai 2 needs. CUDA is used when `nvidia-smi` is present, ROCm when `rocminfo` is present, Metal on Apple Silicon, and CPU otherwise. Intel and AMD integrated graphics can use the Vulkan build with `OMP_HF_BACKEND=vulkan`; it is not the default because it decoded slower than CPU in testing (see Notes).
+1. A pinned [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp/releases) build for your platform. This is upstream llama.cpp plus the `PQ2_0`/`PTQ1_0` kernels that Bonsai 2 needs. CUDA is used when `nvidia-smi` is present, ROCm when `rocminfo` is present, Vulkan on Linux x64 machines with an Intel or AMD GPU (including integrated graphics), Metal on Apple Silicon, and CPU otherwise. The Linux x64 Vulkan build comes from this repo's [releases](https://github.com/aiguy110/omp-hf/releases). It is PrismML's source plus [one patch](patches/ggml-vulkan-host-cached.patch), built by [a workflow](.github/workflows/llama-vulkan.yml), and it fixes slow generation on integrated GPUs (see Notes). Set `OMP_HF_BACKEND=cpu` to opt out.
 2. The model's GGUF weights, plus its vision projector if it has one, from Hugging Face.
 
 Progress appears in omp's status line. Interrupted downloads pick up where they left off.

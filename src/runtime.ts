@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,6 +7,12 @@ import { type CatalogEntry, hfHeaders } from "./catalog";
 /** PrismML's llama.cpp fork: upstream plus the PQ2_0/PTQ1_0 kernels Bonsai 2 needs. */
 const LLAMA_REPO = "PrismML-Eng/llama.cpp";
 const LLAMA_TAG = process.env.OMP_HF_LLAMA_TAG || "prism-b10787-73bfe6c";
+/**
+ * PrismML tag that this repo's workflow rebuilt for Linux x64 Vulkan with patches/ggml-vulkan-host-cached.patch.
+ * Without the patch, iGPUs lacking cached+coherent host memory decode ~3x slower (see README).
+ */
+const HOSTFIX_TAG = "prism-b10787-73bfe6c";
+const HOSTFIX_REPO = "aiguy110/omp-hf";
 
 export const HOME = process.env.OMP_HF_HOME || path.join(os.homedir(), ".omp", "hf");
 export const PORT = Number(process.env.OMP_HF_PORT || 18080);
@@ -25,33 +32,54 @@ interface ServerState {
 
 interface Variant {
 	asset: string;
+	url: string;
 	gpu: boolean;
+}
+
+/** True when an Intel or AMD GPU exposes a render node and the Vulkan loader is installed. */
+function hasVulkanGpu(): boolean {
+	const loaders = ["/usr/lib/x86_64-linux-gnu/libvulkan.so.1", "/usr/lib64/libvulkan.so.1", "/usr/lib/libvulkan.so.1"];
+	if (!loaders.some(p => existsSync(p))) return false;
+	try {
+		return readdirSync("/sys/class/drm")
+			.filter(name => name.startsWith("renderD"))
+			.some(name => {
+				const vendor = readFileSync(`/sys/class/drm/${name}/device/vendor`, "utf8").trim();
+				return vendor === "0x8086" || vendor === "0x1002";
+			});
+	} catch {
+		return false;
+	}
 }
 
 function pickVariant(): Variant {
 	const forced = process.env.OMP_HF_BACKEND;
-	const asset = (suffix: string) => `llama-${LLAMA_TAG}-bin-${suffix}.tar.gz`;
+	const prism = (suffix: string, gpu: boolean): Variant => {
+		const asset = `llama-${LLAMA_TAG}-bin-${suffix}.tar.gz`;
+		return { asset, url: `https://github.com/${LLAMA_REPO}/releases/download/${LLAMA_TAG}/${asset}`, gpu };
+	};
 	const { platform, arch } = process;
-	if (platform === "darwin") return { asset: asset(arch === "arm64" ? "macos-arm64" : "macos-x64"), gpu: arch === "arm64" };
+	if (platform === "darwin") return prism(arch === "arm64" ? "macos-arm64" : "macos-x64", arch === "arm64");
 	if (platform !== "linux") throw new Error(`omp-hf supports Linux and macOS; ${platform} is not supported`);
-	if (arch === "arm64") {
-		return forced === "vulkan" ? { asset: asset("ubuntu-vulkan-arm64"), gpu: true } : { asset: asset("ubuntu-arm64"), gpu: false };
-	}
-	// Integrated GPUs stay on CPU unless asked: on an Arc iGPU, Vulkan prefilled ~1.5x faster but
-	// decoded ~0.7x as fast as CPU in llama-server, and thinking models are decode-bound.
-	const backend = forced || (Bun.which("nvidia-smi") ? "cuda" : Bun.which("rocminfo") ? "rocm" : "cpu");
+	if (arch === "arm64") return forced === "vulkan" ? prism("ubuntu-vulkan-arm64", true) : prism("ubuntu-arm64", false);
+	const backend =
+		forced || (Bun.which("nvidia-smi") ? "cuda" : Bun.which("rocminfo") ? "rocm" : hasVulkanGpu() ? "vulkan" : "cpu");
 	switch (backend) {
 		case "cuda":
-			return { asset: asset("linux-cuda-12.4-x64"), gpu: true };
+			return prism("linux-cuda-12.4-x64", true);
 		case "cuda-12.8":
 		case "cuda-13.3":
-			return { asset: asset(`linux-${backend}-x64`), gpu: true };
+			return prism(`linux-${backend}-x64`, true);
 		case "rocm":
-			return { asset: asset("ubuntu-rocm-7.2-x64"), gpu: true };
-		case "vulkan":
-			return { asset: asset("ubuntu-vulkan-x64"), gpu: true };
+			return prism("ubuntu-rocm-7.2-x64", true);
+		case "vulkan": {
+			if (LLAMA_TAG !== HOSTFIX_TAG) return prism("ubuntu-vulkan-x64", true);
+			const asset = `llama-${HOSTFIX_TAG}-hostfix-bin-ubuntu-vulkan-x64.tar.gz`;
+			const release = `vulkan-hostfix-${HOSTFIX_TAG}`;
+			return { asset, url: `https://github.com/${HOSTFIX_REPO}/releases/download/${release}/${asset}`, gpu: true };
+		}
 		case "cpu":
-			return { asset: asset("ubuntu-x64"), gpu: false };
+			return prism("ubuntu-x64", false);
 		default:
 			throw new Error(`Unknown OMP_HF_BACKEND "${backend}" (cpu, cuda, cuda-12.8, cuda-13.3, rocm, vulkan)`);
 	}
@@ -75,7 +103,7 @@ export async function ensureLlamaServer(progress: Progress, signal?: AbortSignal
 	if (existing) return { bin: existing, gpu: variant.gpu };
 
 	const archive = `${dir}.tar.gz`;
-	await download(`https://github.com/${LLAMA_REPO}/releases/download/${LLAMA_TAG}/${variant.asset}`, archive, "llama.cpp runtime", progress, signal);
+	await download(variant.url, archive, "llama.cpp runtime", progress, signal);
 	const staging = `${dir}.partial`;
 	await fs.rm(staging, { recursive: true, force: true });
 	await fs.mkdir(staging, { recursive: true });

@@ -20,7 +20,7 @@ jobs:
     env:
       TAG: ${{ inputs.prism_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch PrismML source and apply patch
         run: |
